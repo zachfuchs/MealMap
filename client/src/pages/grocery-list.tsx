@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { format, startOfWeek, addWeeks, subWeeks } from "date-fns";
 import {
   ShoppingCart, ChevronLeft, ChevronRight, RefreshCw, Plus,
-  Copy, Check, Maximize2, Minimize2, Loader2
+  Copy, Check, Maximize2, Minimize2, Loader2, PackageCheck
 } from "lucide-react";
 import type { GroceryListItem } from "@shared/schema";
 
@@ -36,21 +36,50 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+const INGREDIENT_TO_PANTRY_CATEGORY: Record<string, string> = {
+  produce: "produce",
+  meat_seafood: "meat_seafood",
+  dairy: "dairy",
+  bakery: "other",
+  frozen: "other",
+  canned_jarred: "canned_jarred",
+  grains_pasta: "grains_pasta",
+  condiments_sauces: "condiments_sauces",
+  spices: "spices",
+  snacks: "snacks",
+  beverages: "beverages",
+  other: "other",
+};
+
 function getMonday(date: Date): Date {
   return startOfWeek(date, { weekStartsOn: 1 });
 }
 
-function AddItemDialog({ open, onClose, listId }: { open: boolean; onClose: () => void; listId: string }) {
+function AddItemDialog({
+  open, onClose, listId, onCreated
+}: {
+  open: boolean;
+  onClose: () => void;
+  listId: string | null;
+  onCreated?: (id: string) => void;
+}) {
   const { toast } = useToast();
   const [name, setName] = useState("");
   const [qty, setQty] = useState("");
   const [unit, setUnit] = useState("");
   const [category, setCategory] = useState("other");
 
-  const mutation = useMutation({
+  const createListMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/grocery-lists/${listId}/items`, {
-        ingredientName: name,
+      const res = await apiRequest("POST", "/api/grocery-lists", { name: "My grocery list" });
+      return res.json();
+    },
+  });
+
+  const addItemMutation = useMutation({
+    mutationFn: async (targetListId: string) => {
+      const res = await apiRequest("POST", `/api/grocery-lists/${targetListId}/items`, {
+        ingredientName: name.trim(),
         totalQuantity: qty || null,
         unit: unit || null,
         category,
@@ -62,23 +91,43 @@ function AddItemDialog({ open, onClose, listId }: { open: boolean; onClose: () =
       });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/grocery-lists", listId] });
-      toast({ title: "Item added" });
+    onSuccess: (_, targetListId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/grocery-lists"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/grocery-lists", targetListId] });
+      toast({ title: "Item added to grocery list" });
       setName(""); setQty(""); setUnit(""); setCategory("other");
       onClose();
     },
-    onError: () => toast({ title: "Failed", variant: "destructive" }),
+    onError: () => toast({ title: "Failed to add item", variant: "destructive" }),
   });
 
+  const handleAdd = async () => {
+    let targetId = listId;
+    if (!targetId) {
+      const newList = await createListMutation.mutateAsync();
+      targetId = newList.id;
+      onCreated?.(newList.id);
+    }
+    addItemMutation.mutate(targetId);
+  };
+
+  const isPending = createListMutation.isPending || addItemMutation.isPending;
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Item</DialogTitle>
+          <DialogTitle>Add Item to List</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3 py-2">
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="Item name" data-testid="input-grocery-item-name" autoFocus />
+          <Input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Item name (e.g. olive oil)"
+            data-testid="input-grocery-item-name"
+            autoFocus
+            onKeyDown={e => { if (e.key === "Enter" && name.trim()) handleAdd(); }}
+          />
           <div className="grid grid-cols-2 gap-3">
             <Input value={qty} onChange={e => setQty(e.target.value)} placeholder="Qty (optional)" data-testid="input-grocery-qty" />
             <Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="Unit (optional)" data-testid="input-grocery-unit" />
@@ -93,9 +142,10 @@ function AddItemDialog({ open, onClose, listId }: { open: boolean; onClose: () =
           </Select>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => mutation.mutate()} disabled={!name || mutation.isPending} data-testid="button-add-grocery-item">
-            Add
+          <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
+          <Button onClick={handleAdd} disabled={!name.trim() || isPending} data-testid="button-add-grocery-item">
+            {isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : null}
+            Add to List
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -103,8 +153,16 @@ function AddItemDialog({ open, onClose, listId }: { open: boolean; onClose: () =
   );
 }
 
-function GroceryItemRow({ item, listId, storeMode }: { item: GroceryListItem; listId: string; storeMode: boolean }) {
-  const mutation = useMutation({
+function GroceryItemRow({
+  item, listId, storeMode
+}: {
+  item: GroceryListItem;
+  listId: string;
+  storeMode: boolean;
+}) {
+  const { toast } = useToast();
+
+  const checkMutation = useMutation({
     mutationFn: async (checked: boolean) => {
       const res = await apiRequest("PATCH", `/api/grocery-lists/${listId}/items/${item.id}`, { isChecked: checked });
       return res.json();
@@ -112,14 +170,44 @@ function GroceryItemRow({ item, listId, storeMode }: { item: GroceryListItem; li
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/grocery-lists", listId] }),
   });
 
+  const haveItMutation = useMutation({
+    mutationFn: async () => {
+      const pantryCategory = INGREDIENT_TO_PANTRY_CATEGORY[item.category || "other"] || "other";
+      await apiRequest("POST", "/api/pantry", {
+        name: item.ingredientName,
+        category: pantryCategory,
+        location: "pantry",
+        quantityNote: item.totalQuantity
+          ? `${item.totalQuantity}${item.unit ? ` ${item.unit}` : ""}`
+          : null,
+        expiryDate: null,
+        autoRestock: false,
+      });
+      const res = await apiRequest("PATCH", `/api/grocery-lists/${listId}/items/${item.id}`, {
+        isPantryCovered: true,
+        isChecked: true,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/grocery-lists", listId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/pantry"] });
+      toast({ title: `"${item.ingredientName}" added to pantry` });
+    },
+    onError: () => toast({ title: "Failed to add to pantry", variant: "destructive" }),
+  });
+
+  const isRecipeItem = !item.manuallyAdded;
+  const alreadyInPantry = item.isPantryCovered;
+
   return (
     <div
-      className={`flex items-start gap-3 py-2 px-3 rounded-md transition-opacity ${item.isChecked ? "opacity-40" : item.isPantryCovered ? "opacity-60" : ""}`}
+      className={`flex items-start gap-3 py-2 px-3 rounded-md transition-opacity group ${item.isChecked ? "opacity-40" : alreadyInPantry ? "opacity-60" : "hover:bg-muted/40"}`}
       data-testid={`grocery-item-${item.id}`}
     >
       <Checkbox
         checked={item.isChecked}
-        onCheckedChange={v => mutation.mutate(!!v)}
+        onCheckedChange={v => checkMutation.mutate(!!v)}
         className="mt-0.5 flex-shrink-0"
         data-testid={`check-grocery-${item.id}`}
       />
@@ -133,18 +221,38 @@ function GroceryItemRow({ item, listId, storeMode }: { item: GroceryListItem; li
               </span>
             )}
           </span>
-          {item.isPantryCovered && !item.isChecked && (
+          {alreadyInPantry && !item.isChecked && (
             <Badge variant="outline" className="text-xs text-green-600 border-green-200 dark:text-green-400 dark:border-green-900">
               <Check className="w-2.5 h-2.5 mr-1" />
               In pantry
             </Badge>
           )}
-          {item.manuallyAdded && <Badge variant="secondary" className="text-xs">Added</Badge>}
+          {item.manuallyAdded && (
+            <Badge variant="secondary" className="text-xs">Added</Badge>
+          )}
         </div>
         {item.sourceRecipes && item.sourceRecipes.length > 0 && !storeMode && (
           <p className="text-xs text-muted-foreground mt-0.5">{item.sourceRecipes.join(", ")}</p>
         )}
       </div>
+
+      {isRecipeItem && !alreadyInPantry && !item.isChecked && !storeMode && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 px-2 text-xs text-muted-foreground hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-950 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={() => haveItMutation.mutate()}
+          disabled={haveItMutation.isPending}
+          title="I already have this — add to pantry"
+          data-testid={`button-have-it-${item.id}`}
+        >
+          {haveItMutation.isPending ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <><PackageCheck className="w-3 h-3 mr-1" />Have it</>
+          )}
+        </Button>
+      )}
     </div>
   );
 }
@@ -259,6 +367,15 @@ export default function GroceryListPage() {
               </Button>
             </>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAdd(true)}
+            data-testid="button-add-grocery"
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            Add Item
+          </Button>
           {groceryList && (
             <>
               <Button size="sm" variant="outline" onClick={copyToClipboard} data-testid="button-copy-list">
@@ -281,12 +398,6 @@ export default function GroceryListPage() {
             {checkedCount}/{totalCount} checked
             {uncheckedCount > 0 && <span className="text-foreground font-medium"> · {uncheckedCount} to get</span>}
           </span>
-          {!storeMode && (
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs flex-shrink-0" onClick={() => setShowAdd(true)} data-testid="button-add-grocery">
-              <Plus className="w-3 h-3 mr-1" />
-              Add
-            </Button>
-          )}
         </div>
       )}
 
@@ -302,23 +413,35 @@ export default function GroceryListPage() {
             </div>
             <div>
               <h3 className="font-semibold text-foreground">No grocery list yet</h3>
-              <p className="text-sm text-muted-foreground mt-1">First add meals to your weekly planner, then generate the list</p>
+              <p className="text-sm text-muted-foreground mt-1">Generate from your meal plan, or add items manually</p>
             </div>
-            <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending} data-testid="button-generate-first">
-              {generateMutation.isPending ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating...</>
-              ) : (
-                <><RefreshCw className="w-4 h-4 mr-2" />Generate Grocery List</>
-              )}
-            </Button>
+            <div className="flex gap-2">
+              <Button onClick={() => generateMutation.mutate()} disabled={generateMutation.isPending} data-testid="button-generate-first">
+                {generateMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Generating...</>
+                ) : (
+                  <><RefreshCw className="w-4 h-4 mr-2" />Generate from Meal Plan</>
+                )}
+              </Button>
+              <Button variant="outline" onClick={() => setShowAdd(true)} data-testid="button-add-manual-first">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Item
+              </Button>
+            </div>
           </div>
         ) : items.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            <p className="text-sm">No items — try adding meals to your meal plan first.</p>
-            <Button size="sm" variant="outline" className="mt-3" onClick={() => setShowAdd(true)}>Add items manually</Button>
+            <p className="text-sm">No items yet.</p>
+            <Button size="sm" variant="outline" className="mt-3" onClick={() => setShowAdd(true)}>
+              <Plus className="w-3.5 h-3.5 mr-1.5" />
+              Add items manually
+            </Button>
           </div>
         ) : (
           <div className="flex flex-col gap-5 max-w-xl">
+            <p className="text-xs text-muted-foreground -mb-2">
+              Hover an item to see the <span className="font-medium">Have it</span> button — tap it to mark as in pantry without buying
+            </p>
             {Object.entries(grouped).map(([cat, catItems]) => (
               <div key={cat}>
                 <div className="flex items-center justify-between mb-2">
@@ -340,9 +463,15 @@ export default function GroceryListPage() {
         )}
       </div>
 
-      {showAdd && groceryList && (
-        <AddItemDialog open={showAdd} onClose={() => setShowAdd(false)} listId={groceryList.id} />
-      )}
+      <AddItemDialog
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        listId={latestListId}
+        onCreated={(id) => {
+          setActiveListId(id);
+          queryClient.invalidateQueries({ queryKey: ["/api/grocery-lists"] });
+        }}
+      />
     </div>
   );
 }

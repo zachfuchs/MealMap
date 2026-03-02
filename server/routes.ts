@@ -573,6 +573,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.post("/api/grocery-lists", authMiddleware, async (req: any, res) => {
+    try {
+      const { name } = req.body;
+      const list = await storage.createGroceryList({
+        householdId: req.householdId,
+        mealPlanId: null,
+        name: name || "My grocery list",
+        weekStart: null,
+      });
+      const items = await storage.getGroceryListItems(list.id);
+      res.status(201).json({ ...list, items });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to create grocery list" });
+    }
+  });
+
   app.get("/api/grocery-lists/:id", authMiddleware, async (req: any, res) => {
     try {
       const list = await storage.getGroceryList(req.params.id);
