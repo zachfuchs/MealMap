@@ -370,7 +370,7 @@ export default function AddRecipePage() {
     enabled: !!editId,
   });
 
-  const { data: pantryItems = [] } = useQuery<any[]>({ queryKey: ["/api/pantry"] });
+  const { data: pantryItems = [] } = useQuery<any[]>({ queryKey: ["/api/pantry"], staleTime: 0, refetchOnMount: "always" });
 
   const importUrlMutation = useMutation({
     mutationFn: async () => {

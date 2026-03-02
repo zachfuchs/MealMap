@@ -9,6 +9,17 @@ import * as cheerio from "cheerio";
 
 const JWT_SECRET = process.env.SESSION_SECRET || "mealmap-secret-2024";
 
+function parseClaudeJson(text: string): any {
+  const stripped = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  try {
+    return JSON.parse(stripped);
+  } catch {
+    const match = stripped.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("Could not find JSON in AI response");
+    return JSON.parse(match[0]);
+  }
+}
+
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
@@ -376,14 +387,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const content = message.content[0];
       if (content.type !== "text") throw new Error("No text response");
 
-      let parsed;
-      try {
-        parsed = JSON.parse(content.text.trim());
-      } catch {
-        const jsonMatch = content.text.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error("Invalid JSON response");
-        parsed = JSON.parse(jsonMatch[0]);
-      }
+      const parsed = parseClaudeJson(content.text);
 
       res.json(parsed);
     } catch (err: any) {
@@ -406,7 +410,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const content = message.content[0];
       if (content.type !== "text") throw new Error("No text response");
-      const parsed = JSON.parse(content.text.trim());
+      const parsed = parseClaudeJson(content.text);
       res.json(parsed);
     } catch (err: any) {
       console.error(err);
@@ -433,7 +437,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const content = message.content[0];
       if (content.type !== "text") throw new Error("No response");
-      const parsed = JSON.parse(content.text.trim());
+      const parsed = parseClaudeJson(content.text);
       res.json(parsed);
     } catch (err: any) {
       console.error(err);
