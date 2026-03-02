@@ -187,6 +187,7 @@ function GroceryItemRow({
       const res = await apiRequest("PATCH", `/api/grocery-lists/${listId}/items/${item.id}`, {
         isPantryCovered: true,
         isChecked: true,
+        notes: "pantry",
       });
       return res.json();
     },
@@ -225,7 +226,10 @@ function GroceryItemRow({
           {alreadyInPantry && !item.isChecked && (
             <Badge variant="outline" className="text-xs text-green-600 border-green-200 dark:text-green-400 dark:border-green-900">
               <Check className="w-2.5 h-2.5 mr-1" />
-              In pantry
+              {item.notes === "fridge" ? "In fridge"
+                : item.notes === "freezer" ? "In freezer"
+                : item.notes === "snack_bin" ? "In snack bin"
+                : "In pantry"}
             </Badge>
           )}
           {item.manuallyAdded && (

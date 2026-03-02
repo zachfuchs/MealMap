@@ -695,7 +695,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const itemsToCreate = Array.from(ingredientMap.entries()).map(([key, val]) => {
         const name = key.split("__")[0];
-        const isPantryCovered = pantryNames.some(p => p.includes(name) || name.includes(p));
+        const matchedPantryItem = pantry.find(p =>
+          p.name.toLowerCase().includes(name) || name.includes(p.name.toLowerCase())
+        );
+        const isPantryCovered = !!matchedPantryItem;
         return {
           groceryListId: list.id,
           ingredientName: name,
@@ -706,7 +709,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           isChecked: false,
           isPantryCovered,
           manuallyAdded: false,
-          notes: null,
+          notes: matchedPantryItem ? matchedPantryItem.location : null,
         };
       });
 
