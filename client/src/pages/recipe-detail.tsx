@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatQty } from "@/lib/format";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -223,7 +224,7 @@ export default function RecipeDetailPage() {
                 <div key={ing.id} className="flex items-start gap-3" onClick={() => toggleIngredient(i)}>
                   <Checkbox checked={checkedIngredients.has(i)} className="mt-0.5 flex-shrink-0" />
                   <span className={`text-lg leading-relaxed ${checkedIngredients.has(i) ? "line-through text-muted-foreground" : "text-foreground"}`}>
-                    {ing.quantity && parseFloat(ing.quantity) > 0 ? `${ing.quantity} ${ing.unit || ""} ` : ""}{ing.name}{ing.preparation ? `, ${ing.preparation}` : ""}
+                    {formatQty(ing.quantity) ? `${formatQty(ing.quantity)}${ing.unit ? ` ${ing.unit}` : ""} ` : ""}{ing.name}{ing.preparation ? `, ${ing.preparation}` : ""}
                   </span>
                 </div>
               ))}
@@ -357,8 +358,8 @@ export default function RecipeDetailPage() {
                       data-testid={`ingredient-check-${i}`}
                     />
                     <label htmlFor={`ing-${i}`} className={`text-sm cursor-pointer ${checkedIngredients.has(i) ? "line-through text-muted-foreground" : "text-foreground"}`}>
-                      {ing.quantity && parseFloat(ing.quantity) > 0 ? (
-                        <span className="font-medium">{ing.quantity} {ing.unit} </span>
+                      {formatQty(ing.quantity) ? (
+                        <span className="font-medium">{formatQty(ing.quantity)}{ing.unit ? ` ${ing.unit}` : ""} </span>
                       ) : null}
                       {ing.name}
                       {ing.preparation && <span className="text-muted-foreground">, {ing.preparation}</span>}

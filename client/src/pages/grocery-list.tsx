@@ -15,6 +15,7 @@ import {
   ShoppingCart, ChevronLeft, ChevronRight, RefreshCw, Plus,
   Copy, Check, Maximize2, Minimize2, Loader2, PackageCheck
 } from "lucide-react";
+import { formatQty } from "@/lib/format";
 import type { GroceryListItem } from "@shared/schema";
 
 const CATEGORY_ORDER = [
@@ -177,8 +178,8 @@ function GroceryItemRow({
         name: item.ingredientName,
         category: pantryCategory,
         location: "pantry",
-        quantityNote: item.totalQuantity
-          ? `${item.totalQuantity}${item.unit ? ` ${item.unit}` : ""}`
+        quantityNote: formatQty(item.totalQuantity)
+          ? `${formatQty(item.totalQuantity)}${item.unit ? ` ${item.unit}` : ""}`
           : null,
         expiryDate: null,
         autoRestock: false,
@@ -215,9 +216,9 @@ function GroceryItemRow({
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`${storeMode ? "text-base" : "text-sm"} font-medium text-foreground ${item.isChecked ? "line-through" : ""}`}>
             {item.ingredientName}
-            {item.totalQuantity && parseFloat(item.totalQuantity) > 0 && (
+            {formatQty(item.totalQuantity) && (
               <span className="font-normal text-muted-foreground">
-                {" "}{item.totalQuantity}{item.unit ? ` ${item.unit}` : ""}
+                {" "}{formatQty(item.totalQuantity)}{item.unit ? ` ${item.unit}` : ""}
               </span>
             )}
           </span>
@@ -325,8 +326,8 @@ export default function GroceryListPage() {
       if (!catItems?.length) continue;
       text.push(`\n${CATEGORY_LABELS[cat].toUpperCase()}`);
       for (const item of catItems) {
-        const qty = item.totalQuantity && parseFloat(item.totalQuantity) > 0
-          ? `, ${item.totalQuantity}${item.unit ? ` ${item.unit}` : ""}`
+        const qty = formatQty(item.totalQuantity)
+          ? `, ${formatQty(item.totalQuantity)}${item.unit ? ` ${item.unit}` : ""}`
           : "";
         const checked = item.isChecked ? "[x] " : "[ ] ";
         text.push(`${checked}${item.ingredientName}${qty}`);
