@@ -477,6 +477,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.post("/api/pantry/:id/restock", authMiddleware, async (req: any, res) => {
+    try {
+      const item = await storage.getPantryItem(parseInt(req.params.id));
+      if (!item || item.householdId !== req.householdId) return res.status(404).json({ error: "Not found" });
+
+      const updatedItem = await storage.updatePantryItem(item.id, { quantityNote: "running low" });
+
+      const lists = await storage.getGroceryListsByHousehold(req.householdId);
+      let list = lists.length > 0 ? lists[lists.length - 1] : null;
+      if (!list) {
+        list = await storage.createGroceryList({
+          householdId: req.householdId,
+          mealPlanId: null,
+          name: "Shopping list",
+          weekStart: null,
+        });
+      }
+
+      const existingItems = await storage.getGroceryListItems(list.id);
+      const alreadyPresent = existingItems.some(
+        i => i.ingredientName.toLowerCase() === item.name.toLowerCase()
+      );
+
+      if (!alreadyPresent) {
+        await storage.createGroceryListItem({
+          groceryListId: list.id,
+          ingredientName: item.name,
+          totalQuantity: null,
+          unit: null,
+          category: item.category,
+          sourceRecipes: [],
+          isChecked: false,
+          isPantryCovered: false,
+          manuallyAdded: true,
+          notes: "Marked as running low in pantry",
+        });
+      }
+
+      res.json({ pantryItem: updatedItem, listId: list.id, listName: list.name, alreadyPresent });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to restock" });
+    }
+  });
+
   app.patch("/api/pantry/:id", authMiddleware, async (req: any, res) => {
     try {
       const item = await storage.getPantryItem(parseInt(req.params.id));
