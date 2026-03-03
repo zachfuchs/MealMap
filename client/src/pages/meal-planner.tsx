@@ -1,8 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,7 +11,7 @@ import { ChevronLeft, ChevronRight, Plus, X, Clock, Search } from "lucide-react"
 import { getToken } from "@/lib/auth";
 import type { Recipe } from "@shared/schema";
 
-const MEAL_SLOTS = ["breakfast", "lunch", "dinner", "snack"] as const;
+const MEAL_SLOTS = ["dinner", "breakfast", "lunch", "snack"] as const;
 const SLOT_LABELS = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" };
 const SLOT_COLORS = {
   breakfast: "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50",
@@ -30,6 +29,14 @@ const SLOT_TEXT = {
 function getMonday(date: Date): Date {
   return startOfWeek(date, { weekStartsOn: 1 });
 }
+
+type DragSource = {
+  entryId: number;
+  date: string;
+  slot: string;
+  recipeId: string | null;
+  customMealText: string | null;
+};
 
 function AddMealDialog({
   open, onClose, date, slot, onSave
@@ -139,25 +146,59 @@ function AddMealDialog({
   );
 }
 
-function MealSlotCell({ slot, entry, onAdd, onRemove, date }: {
+function MealSlotCell({ slot, entry, onAdd, onRemove, onDragStart, onDrop, date }: {
   slot: string;
   entry: any;
   onAdd: (date: string, slot: string) => void;
   onRemove: (id: number) => void;
+  onDragStart: (source: DragSource) => void;
+  onDrop: (targetDate: string, targetSlot: string) => void;
   date: string;
 }) {
+  const [isDragOver, setIsDragOver] = useState(false);
   const colorClass = SLOT_COLORS[slot as keyof typeof SLOT_COLORS];
   const textClass = SLOT_TEXT[slot as keyof typeof SLOT_TEXT];
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    onDrop(date, slot);
+  };
+
   return (
-    <div className={`min-h-[60px] p-1.5 rounded border ${colorClass} flex flex-col gap-1`}>
+    <div
+      className={`min-h-[60px] p-1.5 rounded border ${colorClass} flex flex-col gap-1 transition-all duration-150 ${isDragOver ? "ring-2 ring-primary ring-inset brightness-95" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      data-testid={`cell-${date}-${slot}`}
+    >
       {entry ? (
-        <div className="flex items-start justify-between gap-1 group">
+        <div
+          className="flex items-start justify-between gap-1 group cursor-grab active:cursor-grabbing select-none"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = "move";
+            onDragStart({ entryId: entry.id, date, slot, recipeId: entry.recipeId, customMealText: entry.customMealText });
+          }}
+        >
           <p className={`text-xs font-medium leading-snug ${textClass} flex-1 min-w-0`}>
             {entry.recipe?.title || entry.customMealText}
           </p>
           <button
-            onClick={() => onRemove(entry.id)}
+            onClick={(e) => { e.stopPropagation(); onRemove(entry.id); }}
             className="opacity-0 group-hover:opacity-100 flex-shrink-0"
             data-testid={`button-remove-entry-${entry.id}`}
           >
@@ -181,6 +222,7 @@ export default function MealPlannerPage() {
   const { toast } = useToast();
   const [currentWeek, setCurrentWeek] = useState(() => getMonday(new Date()));
   const [addDialog, setAddDialog] = useState<{ date: string; slot: string } | null>(null);
+  const dragSourceRef = useRef<DragSource | null>(null);
 
   const weekStart = format(currentWeek, "yyyy-MM-dd");
   const days = Array.from({ length: 7 }, (_, i) => addDays(currentWeek, i));
@@ -229,6 +271,33 @@ export default function MealPlannerPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/meal-plans"] }),
     onError: () => toast({ title: "Failed to remove meal", variant: "destructive" }),
   });
+
+  const moveMealMutation = useMutation({
+    mutationFn: async ({ source, targetDate, targetSlot }: { source: DragSource; targetDate: string; targetSlot: string }) => {
+      await apiRequest("POST", "/api/meal-plans/entries", {
+        weekStart,
+        date: targetDate,
+        mealSlot: targetSlot,
+        recipeId: source.recipeId || null,
+        customMealText: source.customMealText || null,
+      });
+      await apiRequest("DELETE", `/api/meal-plans/entries/${source.entryId}`);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/meal-plans"] }),
+    onError: () => toast({ title: "Failed to move meal", variant: "destructive" }),
+  });
+
+  const handleDragStart = (source: DragSource) => {
+    dragSourceRef.current = source;
+  };
+
+  const handleDrop = (targetDate: string, targetSlot: string) => {
+    const source = dragSourceRef.current;
+    dragSourceRef.current = null;
+    if (!source) return;
+    if (source.date === targetDate && source.slot === targetSlot) return;
+    moveMealMutation.mutate({ source, targetDate, targetSlot });
+  };
 
   const today = new Date();
   const isCurrentWeek = isSameDay(getMonday(today), currentWeek);
@@ -305,6 +374,7 @@ export default function MealPlannerPage() {
 
               {MEAL_SLOTS.map(slot => (
                 <div key={slot} className="mb-2">
+                  <p className="text-xs font-medium text-muted-foreground mb-1 ml-0.5">{SLOT_LABELS[slot]}</p>
                   <div className="grid grid-cols-7 gap-2">
                     {days.map(day => {
                       const dateStr = format(day, "yyyy-MM-dd");
@@ -317,11 +387,12 @@ export default function MealPlannerPage() {
                           date={dateStr}
                           onAdd={(d, s) => setAddDialog({ date: d, slot: s })}
                           onRemove={(id) => removeMealMutation.mutate(id)}
+                          onDragStart={handleDragStart}
+                          onDrop={handleDrop}
                         />
                       );
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1 mb-2 ml-0.5">{SLOT_LABELS[slot]}</p>
                 </div>
               ))}
             </div>

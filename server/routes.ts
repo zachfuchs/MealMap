@@ -761,5 +761,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.post("/api/grocery-lists/:listId/bulk-add", authMiddleware, async (req: any, res) => {
+    try {
+      const { listId } = req.params;
+      const list = await storage.getGroceryList(listId);
+      if (!list || list.householdId !== req.householdId) return res.status(404).json({ error: "Not found" });
+      const { items } = req.body;
+      if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "items must be a non-empty array" });
+
+      const VALID_CATEGORIES = ["produce", "meat_seafood", "dairy", "bakery", "frozen", "canned_jarred", "grains_pasta", "condiments_sauces", "spices", "snacks", "beverages", "other"];
+      const message = await anthropic.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 2048,
+        messages: [{
+          role: "user",
+          content: `Categorize these grocery items and extract quantity/unit where present. Valid categories: produce, meat_seafood, dairy, bakery, frozen, canned_jarred, grains_pasta, condiments_sauces, spices, snacks, beverages, other\n\nItems:\n${items.join("\n")}\n\nReturn JSON array ONLY:\n[{"name":"clean name","category":"category","quantity":"number or null","unit":"unit or null"}]`,
+        }],
+      });
+      const content = message.content[0];
+      if (content.type !== "text") return res.status(500).json({ error: "AI error" });
+      const parsed = parseClaudeJson(content.text);
+      const created = await storage.bulkCreateGroceryListItems(
+        parsed.map((item: any) => ({
+          groceryListId: listId,
+          ingredientName: item.name || "Unknown item",
+          totalQuantity: item.quantity || null,
+          unit: item.unit || null,
+          category: VALID_CATEGORIES.includes(item.category) ? item.category as any : "other",
+          sourceRecipes: [],
+          isChecked: false,
+          isPantryCovered: false,
+          manuallyAdded: true,
+          notes: null,
+        }))
+      );
+      res.json(created);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to bulk add items" });
+    }
+  });
+
   return httpServer;
 }
