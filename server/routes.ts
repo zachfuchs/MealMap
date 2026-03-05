@@ -25,6 +25,18 @@ const anthropic = new Anthropic({
   baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
 });
 
+async function adminMiddleware(req: Request, res: Response, next: Function) {
+  const userId = (req as any).userId;
+  if (!userId) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const user = await storage.getUserById(userId);
+    if (!user || user.role !== "admin") return res.status(403).json({ error: "Admin access required" });
+    next();
+  } catch {
+    res.status(500).json({ error: "Failed to verify admin" });
+  }
+}
+
 function authMiddleware(req: Request, res: Response, next: Function) {
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Unauthorized" });
@@ -101,38 +113,8 @@ Return ONLY valid JSON in this exact format:
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // Auth routes
-  app.post("/api/auth/register", async (req, res) => {
-    try {
-      const { email, password, displayName, householdName, inviteCode } = req.body;
-      if (!email || !password || !displayName) {
-        return res.status(400).json({ error: "Email, password, and display name are required" });
-      }
-
-      const existing = await storage.getUserByEmail(email);
-      if (existing) return res.status(409).json({ error: "Email already in use" });
-
-      const passwordHash = await bcrypt.hash(password, 10);
-      let householdId: string;
-
-      if (inviteCode) {
-        const household = await storage.getHouseholdByInviteCode(inviteCode.trim().toUpperCase());
-        if (!household) return res.status(404).json({ error: "Invalid invite code" });
-        householdId = household.id;
-      } else if (householdName) {
-        const household = await storage.createHousehold({ name: householdName });
-        householdId = household.id;
-      } else {
-        return res.status(400).json({ error: "Either household name or invite code is required" });
-      }
-
-      const user = await storage.createUser({ email, passwordHash, displayName, householdId });
-      const token = jwt.sign({ userId: user.id, householdId }, JWT_SECRET, { expiresIn: "30d" });
-      const household = await storage.getHousehold(householdId);
-      res.json({ token, user: { id: user.id, email: user.email, displayName: user.displayName, householdId }, household });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: "Registration failed" });
-    }
+  app.post("/api/auth/register", async (_req, res) => {
+    res.status(403).json({ error: "Self-registration is disabled. Contact your admin to create an account." });
   });
 
   app.post("/api/auth/login", async (req, res) => {
@@ -146,7 +128,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const token = jwt.sign({ userId: user.id, householdId: user.householdId }, JWT_SECRET, { expiresIn: "30d" });
       const household = user.householdId ? await storage.getHousehold(user.householdId) : null;
-      res.json({ token, user: { id: user.id, email: user.email, displayName: user.displayName, householdId: user.householdId }, household });
+      res.json({ token, user: { id: user.id, email: user.email, displayName: user.displayName, householdId: user.householdId, role: user.role }, household });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "Login failed" });
@@ -158,7 +140,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const user = await storage.getUserById(req.userId);
       if (!user) return res.status(404).json({ error: "User not found" });
       const household = user.householdId ? await storage.getHousehold(user.householdId) : null;
-      res.json({ user: { id: user.id, email: user.email, displayName: user.displayName, householdId: user.householdId }, household });
+      res.json({ user: { id: user.id, email: user.email, displayName: user.displayName, householdId: user.householdId, role: user.role }, household });
     } catch (err) {
       res.status(500).json({ error: "Failed to fetch user" });
     }
@@ -758,6 +740,102 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ success: true });
     } catch {
       res.status(500).json({ error: "Failed" });
+    }
+  });
+
+  // Admin routes
+  app.get("/api/admin/users", authMiddleware, adminMiddleware, async (req: any, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const safeUsers = allUsers.map(u => ({
+        id: u.id, email: u.email, displayName: u.displayName,
+        householdId: u.householdId, role: u.role, createdAt: u.createdAt,
+      }));
+      res.json(safeUsers);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  app.post("/api/admin/users", authMiddleware, adminMiddleware, async (req: any, res) => {
+    try {
+      const { email, password, displayName, householdName, inviteCode, role } = req.body;
+      if (!email || !password || !displayName) {
+        return res.status(400).json({ error: "Email, password, and display name are required" });
+      }
+      const existing = await storage.getUserByEmail(email);
+      if (existing) return res.status(409).json({ error: "Email already in use" });
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      let householdId: string;
+
+      if (inviteCode) {
+        const household = await storage.getHouseholdByInviteCode(inviteCode.trim().toUpperCase());
+        if (!household) return res.status(404).json({ error: "Invalid invite code" });
+        householdId = household.id;
+      } else if (householdName) {
+        const household = await storage.createHousehold({ name: householdName });
+        householdId = household.id;
+      } else {
+        return res.status(400).json({ error: "Either household name or invite code is required" });
+      }
+
+      const user = await storage.createUser({
+        email, passwordHash, displayName, householdId,
+        role: role === "admin" ? "admin" : "user",
+      });
+      res.status(201).json({
+        id: user.id, email: user.email, displayName: user.displayName,
+        householdId: user.householdId, role: user.role, createdAt: user.createdAt,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id", authMiddleware, adminMiddleware, async (req: any, res) => {
+    try {
+      const { displayName, password, role, householdId } = req.body;
+      const updates: any = {};
+      if (displayName !== undefined) updates.displayName = displayName;
+      if (password) updates.passwordHash = await bcrypt.hash(password, 10);
+      if (role === "admin" || role === "user") updates.role = role;
+      if (householdId !== undefined) updates.householdId = householdId;
+      const user = await storage.updateUser(req.params.id, updates);
+      res.json({
+        id: user.id, email: user.email, displayName: user.displayName,
+        householdId: user.householdId, role: user.role, createdAt: user.createdAt,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to update user" });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", authMiddleware, adminMiddleware, async (req: any, res) => {
+    try {
+      if (req.params.id === req.userId) {
+        return res.status(400).json({ error: "You cannot delete your own account" });
+      }
+      await storage.deleteUser(req.params.id);
+      res.json({ success: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to delete user" });
+    }
+  });
+
+  app.get("/api/admin/households", authMiddleware, adminMiddleware, async (_req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const householdIds = [...new Set(allUsers.map(u => u.householdId).filter(Boolean))];
+      const households = await Promise.all(householdIds.map(id => storage.getHousehold(id!)));
+      res.json(households.filter(Boolean));
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch households" });
     }
   });
 

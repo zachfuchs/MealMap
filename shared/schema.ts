@@ -15,6 +15,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Enums
+export const userRoleEnum = pgEnum("user_role", ["admin", "user"]);
 export const sourceTypeEnum = pgEnum("source_type", ["imported", "generated", "manual"]);
 export const ingredientCategoryEnum = pgEnum("ingredient_category", [
   "produce", "meat_seafood", "dairy", "bakery", "frozen",
@@ -39,6 +40,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   displayName: text("display_name").notNull(),
+  role: userRoleEnum("role").notNull().default("user"),
   createdAt: timestamp("created_at").notNull().default(sql`now()`),
 });
 

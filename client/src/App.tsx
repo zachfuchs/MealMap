@@ -15,6 +15,7 @@ import PantryPage from "@/pages/pantry";
 import MealPlannerPage from "@/pages/meal-planner";
 import GroceryListPage from "@/pages/grocery-list";
 import SettingsPage from "@/pages/settings";
+import AdminPage from "@/pages/admin";
 import NotFound from "@/pages/not-found";
 
 function ProtectedLayout() {
@@ -35,6 +36,7 @@ function ProtectedLayout() {
               <Route path="/meal-planner" component={MealPlannerPage} />
               <Route path="/grocery" component={GroceryListPage} />
               <Route path="/settings" component={SettingsPage} />
+              <Route path="/admin" component={AdminPage} />
               <Route path="/" component={() => <Redirect to="/recipes" />} />
               <Route component={NotFound} />
             </Switch>
