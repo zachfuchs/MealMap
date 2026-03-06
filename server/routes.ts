@@ -146,6 +146,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ error: "Email is required" });
+
+      const user = await storage.getUserByEmail(email.toLowerCase().trim());
+      if (!user) {
+        return res.json({ message: "If that email exists, a reset link has been generated." });
+      }
+
+      await storage.deleteExpiredResetTokens();
+
+      const crypto = await import("crypto");
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await storage.createResetToken(user.id, token, expiresAt);
+
+      res.json({ token, message: "Reset token generated." });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to generate reset token" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) return res.status(400).json({ error: "Token and password are required" });
+      if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+
+      const row = await storage.getResetToken(token);
+      if (!row) return res.status(400).json({ error: "Invalid or expired reset link" });
+      if (row.usedAt) return res.status(400).json({ error: "This reset link has already been used" });
+      if (new Date() > row.expiresAt) return res.status(400).json({ error: "This reset link has expired" });
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      await storage.updateUser(row.userId, { passwordHash });
+      await storage.markResetTokenUsed(row.id);
+
+      res.json({ message: "Password updated successfully" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Failed to reset password" });
+    }
+  });
+
   app.patch("/api/auth/profile", authMiddleware, async (req: any, res) => {
     try {
       const { displayName, password } = req.body;

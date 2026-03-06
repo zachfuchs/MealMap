@@ -10,7 +10,7 @@ import {
   type GroceryList, type InsertGroceryList,
   type GroceryListItem, type InsertGroceryListItem,
   users, households, recipes, ingredients, recipeSteps, pantryItems,
-  mealPlans, mealPlanEntries, groceryLists, groceryListItems,
+  mealPlans, mealPlanEntries, groceryLists, groceryListItems, passwordResetTokens,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, ilike, or, sql } from "drizzle-orm";
@@ -23,6 +23,12 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, data: Partial<InsertUser>): Promise<User>;
   deleteUser(id: string): Promise<void>;
+
+  // Password Reset Tokens
+  createResetToken(userId: string, token: string, expiresAt: Date): Promise<void>;
+  getResetToken(token: string): Promise<{ id: number; userId: string; expiresAt: Date; usedAt: Date | null } | undefined>;
+  markResetTokenUsed(id: number): Promise<void>;
+  deleteExpiredResetTokens(): Promise<void>;
 
   // Households
   getHousehold(id: string): Promise<Household | undefined>;
@@ -116,6 +122,23 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUser(id: string): Promise<void> {
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  async createResetToken(userId: string, token: string, expiresAt: Date): Promise<void> {
+    await db.insert(passwordResetTokens).values({ userId, token, expiresAt });
+  }
+
+  async getResetToken(token: string) {
+    const [row] = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.token, token));
+    return row;
+  }
+
+  async markResetTokenUsed(id: number): Promise<void> {
+    await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
+  }
+
+  async deleteExpiredResetTokens(): Promise<void> {
+    await db.delete(passwordResetTokens).where(sql`expires_at < now()`);
   }
 
   async getHousehold(id: string): Promise<Household | undefined> {

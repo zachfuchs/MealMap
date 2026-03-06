@@ -16,6 +16,7 @@ import MealPlannerPage from "@/pages/meal-planner";
 import GroceryListPage from "@/pages/grocery-list";
 import SettingsPage from "@/pages/settings";
 import AdminPage from "@/pages/admin";
+import ResetPasswordPage from "@/pages/reset-password";
 import NotFound from "@/pages/not-found";
 
 function ProtectedLayout() {
