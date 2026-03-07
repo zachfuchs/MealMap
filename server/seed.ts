@@ -4,6 +4,42 @@ import { db } from "./db";
 import { users, households, recipes, ingredients, recipeSteps, pantryItems } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
+export async function ensureAdminUser() {
+  try {
+    const ADMIN_EMAIL = "zachfuchs@gmail.com";
+    const ADMIN_PASSWORD = "password123";
+    const ADMIN_NAME = "Zach";
+    const ADMIN_HOUSEHOLD = "Fuchsincloss";
+
+    const existing = await storage.getUserByEmail(ADMIN_EMAIL);
+
+    if (existing) {
+      if (existing.role !== "admin") {
+        await storage.updateUser(existing.id, { role: "admin" });
+        console.log(`Admin user ${ADMIN_EMAIL} role updated to admin.`);
+      }
+      return;
+    }
+
+    let household = await db.select().from(households).where(eq(households.name, ADMIN_HOUSEHOLD)).then(r => r[0]);
+    if (!household) {
+      household = await storage.createHousehold({ name: ADMIN_HOUSEHOLD });
+    }
+
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    await storage.createUser({
+      email: ADMIN_EMAIL,
+      passwordHash,
+      displayName: ADMIN_NAME,
+      householdId: household.id,
+      role: "admin",
+    });
+    console.log(`Admin user ${ADMIN_EMAIL} created successfully.`);
+  } catch (err) {
+    console.error("ensureAdminUser failed:", err);
+  }
+}
+
 export async function seedDatabase() {
   try {
     // Check if seed data already exists

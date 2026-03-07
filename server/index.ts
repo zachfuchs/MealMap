@@ -60,8 +60,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const { seedDatabase } = await import("./seed");
+  const { seedDatabase, ensureAdminUser } = await import("./seed");
   await seedDatabase();
+  await ensureAdminUser();
 
   await registerRoutes(httpServer, app);
 
