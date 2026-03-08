@@ -18,7 +18,7 @@ function getPool(): pg.Pool {
       max: 3, // keep pool small for serverless
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
-      ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+      ssl: { rejectUnauthorized: false },
     });
   }
   return pool;
