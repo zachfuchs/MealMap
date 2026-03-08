@@ -8,7 +8,7 @@ import jwt from "jsonwebtoken";
 import Anthropic from "@anthropic-ai/sdk";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { storage } from "./_lib/storage";
+import { storage } from "./_lib/storage.js";
 
 const JWT_SECRET = process.env.SESSION_SECRET || "mealmap-secret-2024";
 

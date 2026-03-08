@@ -11,8 +11,8 @@ import {
   type GroceryListItem, type InsertGroceryListItem,
   users, households, recipes, ingredients, recipeSteps, pantryItems,
   mealPlans, mealPlanEntries, groceryLists, groceryListItems, passwordResetTokens,
-} from "../../shared/schema";
-import { getDb } from "./db";
+} from "../../shared/schema.js";
+import { getDb } from "./db.js";
 import { eq, and, ilike, or, sql } from "drizzle-orm";
 
 function db() { return getDb(); }
